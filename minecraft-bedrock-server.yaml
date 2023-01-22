@@ -1,0 +1,81 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-disk
+provisioner: kubernetes.io/gce-pd
+allowVolumeExpansion: true
+parameters:
+  type: pd-ssd
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mc-bedrock
+spec:
+  storageClassName: fast-disk
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mc-bedrock
+  labels:
+    app: mc-bedrock
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: mc-bedrock
+      labels:
+        app: mc-bedrock
+    spec:
+      containers:
+        - name: mc-bedrock
+          image: itzg/minecraft-bedrock-server
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 500m
+              memory: 4Gi
+          env:
+            - name: EULA
+              value: "TRUE"
+            - name: GAMEMODE
+              value: survival
+            - name: DIFFICULTY
+              value: normal
+            - name: WHITE_LIST
+              value: "true"
+            - name: ONLINE_MODE
+              value: "true"
+            - name: ALLOW_CHEATS
+              value: "true"
+          volumeMounts:
+            - mountPath: /data
+              name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mc-bedrock
+  selector:
+    matchLabels:
+      app: mc-bedrock
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-bedrock
+  labels:
+    app: mc-bedrock
+spec:
+  selector:
+    app: mc-bedrock
+  ports:
+    - port: 19132
+      protocol: UDP
+  type: LoadBalancer
