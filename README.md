@@ -1,0 +1,1 @@
+I am working towards my CKA certification and this project uses minecraft bedrock server deployed in google cloud using gke along with Splunk Otel collector to send logs from the pods to my homelab Splunk Enterprise deployment using the http event collector (HEC).
