@@ -16,6 +16,7 @@
   - [3. Set Up GKE Autopilot Cluster](#3-set-up-gke-autopilot-cluster)
   - [4. Deploy Minecraft Bedrock Server](#4-deploy-minecraft-bedrock-server)
   - [5. Deploy Splunk OpenTelemetry Collector](#5-deploy-splunk-opentelemetry-collector)
+  - [6. Secure Connectivity to Homelab Splunk (Optional)](#6-secure-connectivity-to-homelab-splunk-optional)
 - [Usage](#usage)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
@@ -172,6 +173,39 @@ Integrate Splunk Otel Collector to collect and forward logs.
    ```
 
    *Replace `my-splunk-otel-collector-pod` with the actual pod name.*
+
+### 6. Secure Connectivity to Homelab Splunk (Optional)
+
+If your Splunk Enterprise instance is running in a homelab behind a firewall, you'll need to securely expose the HEC endpoint to receive data from GKE.
+
+**Recommended Approach: Cloudflare Tunnel + Reverse Proxy**
+
+This project uses Cloudflare Tunnel with Traefik to securely route data from GKE to a homelab Splunk instance without exposing ports:
+
+```
+GKE OTel Collector → HTTPS → Cloudflare Tunnel → Traefik → Splunk HEC
+```
+
+**Benefits:**
+- ✅ End-to-end HTTPS encryption
+- ✅ No port forwarding required on home network
+- ✅ Valid SSL certificates from Cloudflare
+- ✅ Free tier available
+
+Once configured, update your `values.yaml` endpoint to use your Cloudflare domain:
+
+```yaml
+splunkPlatform:
+  endpoint: "https://splunk-hec.yourdomain.com/services/collector/event"
+  token: "YOUR_HEC_TOKEN"
+  insecureSkipVerify: false  # Cloudflare provides valid SSL certificates
+```
+
+**Alternative Options:**
+- **Cloud VPN:** Create an IPsec VPN tunnel between GCP and your homelab
+- **Dynamic DNS + Port Forwarding:** Expose HEC via HTTPS (ensure proper security measures)
+
+> **Note:** Detailed setup of Cloudflare Tunnel and Traefik is beyond the scope of this guide. Refer to the [Cloudflare Tunnel documentation](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/) for setup instructions.
 
 ## Usage
 
