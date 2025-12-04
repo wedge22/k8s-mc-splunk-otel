@@ -28,6 +28,9 @@ metadata:
     app: mc-bedrock
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: mc-bedrock
   template:
     metadata:
       name: mc-bedrock
@@ -36,11 +39,18 @@ spec:
     spec:
       containers:
         - name: mc-bedrock
-          image: itzg/minecraft-bedrock-server
+          image: itzg/minecraft-bedrock-server:latest
           imagePullPolicy: Always
+          ports:
+            - name: bedrock
+              containerPort: 19132
+              protocol: UDP
           resources:
             requests:
               cpu: 500m
+              memory: 4Gi
+            limits:
+              cpu: 1000m
               memory: 4Gi
           env:
             - name: EULA
@@ -58,13 +68,38 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: data
+          # Health checks for automatic restart on failure
+          livenessProbe:
+            exec:
+              command:
+                - mc-monitor
+                - status
+                - --host
+                - localhost
+                - --port
+                - "19132"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          # Readiness check to ensure server is ready before receiving traffic
+          readinessProbe:
+            exec:
+              command:
+                - mc-monitor
+                - status
+                - --host
+                - localhost
+                - --port
+                - "19132"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: mc-bedrock
-  selector:
-    matchLabels:
-      app: mc-bedrock
 ---
 apiVersion: v1
 kind: Service
@@ -76,6 +111,8 @@ spec:
   selector:
     app: mc-bedrock
   ports:
-    - port: 19132
+    - name: bedrock
+      port: 19132
+      targetPort: 19132
       protocol: UDP
   type: LoadBalancer
