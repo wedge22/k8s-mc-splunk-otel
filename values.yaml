@@ -23,7 +23,7 @@ splunkPlatform:
   # REQUIRED: Update with your actual Splunk HEC endpoint
   # Format: "http://YOUR_SPLUNK_IP:8088/services/collector/event"
   # Note: Use /services/collector/event endpoint for proper field extraction
-  endpoint: "http://YOUR_SPLUNK_IP:8088/services/collector/event"
+  endpoint: "https://YOUR_SPLUNK_IP/services/collector/event"
   
   # REQUIRED: Update with your actual Splunk HEC token
   # Generate this in Splunk: Settings > Data Inputs > HTTP Event Collector
