@@ -116,3 +116,9 @@ spec:
       targetPort: 19132
       protocol: UDP
   type: LoadBalancer
+  # Security: Restrict access to specific IP addresses
+  # Replace with your actual IPs (format: "X.X.X.X/32")
+  loadBalancerSourceRanges:
+    - "YOUR_HOME_IP/32"        # Your home/office IP
+    # - "FRIEND_IP_1/32"       # Add additional IPs as needed
+    # - "FRIEND_IP_2/32"

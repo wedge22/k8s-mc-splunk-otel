@@ -117,7 +117,25 @@ Deploy the Minecraft Bedrock Server using the provided YAML configuration.
 
    Follow the detailed steps in the [GCP Guide](https://github.com/wedge22/k8s-mc-splunk-otel/blob/master/gcp-guide.md).
 
-3. **Apply the YAML Configuration:**
+3. **Update Security Settings (Important):**
+
+   Before deploying, update the `loadBalancerSourceRanges` in `minecraft-bedrock-server.yaml` to restrict access to your IP addresses:
+
+   ```yaml
+   # In minecraft-bedrock-server.yaml, update the Service section:
+   loadBalancerSourceRanges:
+     - "YOUR_HOME_IP/32"        # Replace with your actual IP
+     - "FRIEND_IP_1/32"         # Add additional IPs as needed
+   ```
+
+   To find your current public IP:
+   ```bash
+   curl ifconfig.me
+   ```
+
+   > **Security Note:** By default, the LoadBalancer exposes the Minecraft server to the public internet. Using `loadBalancerSourceRanges` restricts access to only the IP addresses you specify, significantly improving security.
+
+4. **Apply the YAML Configuration:**
 
    ```bash
    kubectl apply -f minecraft-bedrock-server.yaml
