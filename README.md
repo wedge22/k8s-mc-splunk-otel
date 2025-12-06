@@ -113,9 +113,11 @@ Deploy the Minecraft Bedrock Server using the provided YAML configuration.
    cd k8s-mc-splunk-otel
    ```
 
-2. **Navigate to the Deployment Guide:**
+2. **Get Cluster Credentials:**
 
-   Follow the detailed steps in the [GCP Guide](https://github.com/wedge22/k8s-mc-splunk-otel/blob/master/gcp-guide.md).
+   ```bash
+   gcloud container clusters get-credentials minecraft-cluster --region us-central1
+   ```
 
 3. **Update Security Settings (Important):**
 
@@ -276,9 +278,9 @@ Once all components are deployed:
 
 ## References
 
-- **GCP Guide:** [k8s-mc-splunk-otel/gcp-guide.md](https://github.com/wedge22/k8s-mc-splunk-otel/blob/master/gcp-guide.md)
 - **Minecraft Bedrock Server YAML:** [minecraft-bedrock-server.yaml](https://github.com/wedge22/k8s-mc-splunk-otel/blob/master/minecraft-bedrock-server.yaml)
-- **Casey West's Guide:** [Casey West - Minecraft Bedrock Server Setup](http://caseywest.com/)
+- **Splunk OTel Collector Chart:** [splunk-otel-collector-chart](https://github.com/signalfx/splunk-otel-collector-chart)
+- **Cloudflare Tunnel Documentation:** [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
 
 ## License
 
