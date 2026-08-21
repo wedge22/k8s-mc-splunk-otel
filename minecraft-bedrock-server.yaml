@@ -3,10 +3,19 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: fast-disk
-provisioner: kubernetes.io/gce-pd
+# Cost: pd-balanced instead of pd-ssd. Bedrock is not IOPS-hungry, and
+# pd-balanced is roughly half the price per GiB.
+# The in-tree kubernetes.io/gce-pd provisioner was removed in Kubernetes 1.26,
+# so the CSI driver is required on current GKE.
+provisioner: pd.csi.storage.gke.io
 allowVolumeExpansion: true
+# Keep the disk when the PVC is deleted so a world survives a teardown.
+reclaimPolicy: Retain
+# Autopilot: don't provision the disk until a Pod actually needs it. Matters
+# when scaling to zero.
+volumeBindingMode: WaitForFirstConsumer
 parameters:
-  type: pd-ssd
+  type: pd-balanced
 ---
 kind: PersistentVolumeClaim
 apiVersion: v1
@@ -18,7 +27,9 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      # 5Gi on pd-balanced costs well under $1/month and leaves room for the
+      # world to grow. 1Gi fills up fast once chunks are generated.
+      storage: 5Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,6 +48,16 @@ spec:
       labels:
         app: mc-bedrock
     spec:
+      # Cost: Spot Pods run at up to ~60% off standard Autopilot rates.
+      # Trade-off: GKE can evict this Pod at any time to reclaim capacity, and
+      # the preemption grace period is capped at 15 seconds regardless of what
+      # terminationGracePeriodSeconds says. The world is on a PVC, so an
+      # eviction means a server restart, not data loss. Spot Pods are excluded
+      # from the Autopilot SLA.
+      # Remove this nodeSelector to go back to standard (SLA-covered) Pods.
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
+      terminationGracePeriodSeconds: 15
       automountServiceAccountToken: false
       securityContext:
         seccompProfile:
@@ -51,13 +72,19 @@ spec:
             - name: bedrock
               containerPort: 19132
               protocol: UDP
+          # Autopilot bills per Pod request, and on a non-bursting cluster it
+          # raises requests to match limits. Requests and limits are therefore
+          # set equal and deliberately: mismatched values here just mean paying
+          # for the larger number. 500m CPU with 2Gi sits inside the
+          # general-purpose 1:1-1:6.5 vCPU:GiB ratio, so GKE won't adjust it.
+          # A small Bedrock server runs comfortably in 2Gi.
           resources:
             requests:
               cpu: 500m
-              memory: 4Gi
+              memory: 2Gi
             limits:
-              cpu: 1000m
-              memory: 4Gi
+              cpu: 500m
+              memory: 2Gi
           env:
             - name: EULA
               value: "TRUE"
