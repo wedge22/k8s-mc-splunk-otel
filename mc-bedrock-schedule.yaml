@@ -49,7 +49,7 @@ metadata:
   name: mc-bedrock-start
 spec:
   schedule: "0 17 * * *"
-  timeZone: "Europe/London"
+  timeZone: "America/Vancouver"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -86,7 +86,7 @@ metadata:
   name: mc-bedrock-stop
 spec:
   schedule: "0 0 * * *"
-  timeZone: "Europe/London"
+  timeZone: "America/Vancouver"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
