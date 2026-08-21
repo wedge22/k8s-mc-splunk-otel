@@ -3,7 +3,7 @@
 ![GCP](https://img.shields.io/badge/GCP-Deployment-green)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-Setup-blue)
 ![Helm](https://img.shields.io/badge/Helm-Integration-orange)
-![License](https://img.shields.io/github/license/yourusername/your-repo-name)
+![License](https://img.shields.io/github/license/wedge22/k8s-mc-splunk-otel)
 
 ## Table of Contents
 
@@ -18,10 +18,10 @@
   - [5. Deploy Splunk OpenTelemetry Collector](#5-deploy-splunk-opentelemetry-collector)
   - [6. Secure Connectivity to Homelab Splunk (Optional)](#6-secure-connectivity-to-homelab-splunk-optional)
 - [Usage](#usage)
+- [Cost Optimization](#cost-optimization)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
 - [License](#license)
-- [Contact](#contact)
 
 ## Introduction
 
@@ -92,14 +92,25 @@ Create a Kubernetes cluster using GKE Autopilot.
 
 ```bash
 gcloud container clusters create-auto minecraft-cluster \
-  --region us-central1 \
+  --location us-central1-a \
   --project YOUR_PROJECT_ID
 ```
+
+> **Cost Note:** Using a single zone (`us-central1-a`) rather than a full
+> region avoids cross-zone egress charges for a lab deployment. Use
+> `--location us-central1` instead if you want multi-zone control plane
+> redundancy.
 
 Verify the cluster is up and running:
 
 ```bash
 gcloud container clusters list
+```
+
+Get credentials for subsequent `kubectl` commands:
+
+```bash
+gcloud container clusters get-credentials minecraft-cluster --location us-central1-a
 ```
 
 ### 4. Deploy Minecraft Bedrock Server
@@ -113,13 +124,7 @@ Deploy the Minecraft Bedrock Server using the provided YAML configuration.
    cd k8s-mc-splunk-otel
    ```
 
-2. **Get Cluster Credentials:**
-
-   ```bash
-   gcloud container clusters get-credentials minecraft-cluster --region us-central1
-   ```
-
-3. **Update Security Settings (Important):**
+2. **Update Security Settings (Important):**
 
    Before deploying, update the `loadBalancerSourceRanges` in `minecraft-bedrock-server.yaml` to restrict access to your IP addresses:
 
@@ -131,19 +136,29 @@ Deploy the Minecraft Bedrock Server using the provided YAML configuration.
    ```
 
    To find your current public IP:
+
    ```bash
    curl ifconfig.me
    ```
 
    > **Security Note:** By default, the LoadBalancer exposes the Minecraft server to the public internet. Using `loadBalancerSourceRanges` restricts access to only the IP addresses you specify, significantly improving security.
 
-4. **Apply the YAML Configuration:**
+3. **Apply the YAML Configuration:**
 
    ```bash
    kubectl apply -f minecraft-bedrock-server.yaml
    ```
 
    *This will create the necessary pods and services for the Minecraft server.*
+
+4. **(Optional) Enable Scheduled Scale-to-Zero:**
+
+   To stop paying for the Pod when nobody is playing, apply the scheduling
+   manifest. See [Cost Optimization](#cost-optimization) for details.
+
+   ```bash
+   kubectl apply -f mc-bedrock-schedule.yaml
+   ```
 
 ### 5. Deploy Splunk OpenTelemetry Collector
 
@@ -156,23 +171,27 @@ Integrate Splunk Otel Collector to collect and forward logs.
    helm repo update
    ```
 
-2. **Create `values.yaml`:**
+2. **Edit `values.yaml`:**
 
-   Customize the Helm chart with your Splunk credentials.
-
-   ```bash
-   nano values.yaml
-   ```
-
-   **Example `values.yaml`:**
+   A `values.yaml` is included in this repository, preconfigured for sending
+   logs to Splunk Enterprise via HEC. Update the two placeholder values with
+   your own HEC details:
 
    ```yaml
-   splunk:
-     accessToken: YOUR_SPLUNK_ACCESS_TOKEN
-     endpoint: https://ingest.YOUR_SPLUNK_HEC_ENDPOINT:443
+   splunkPlatform:
+     endpoint: "https://YOUR_SPLUNK_IP/services/collector/event"
+     token: "YOUR_HEC_TOKEN_HERE"
+     index: "main"
    ```
 
-   *Replace `YOUR_SPLUNK_ACCESS_TOKEN` and `YOUR_SPLUNK_HEC_ENDPOINT` with your actual Splunk HEC details.*
+   *Replace `YOUR_SPLUNK_IP` and `YOUR_HEC_TOKEN_HERE` with your actual Splunk
+   HEC details. Generate a token in Splunk under Settings > Data Inputs > HTTP
+   Event Collector.*
+
+   > **Note:** `splunkPlatform` targets Splunk Enterprise/Cloud via HEC, which
+   > is what this project uses. Sending to Splunk Observability Cloud instead
+   > would use a different `splunkObservability` block with a realm endpoint
+   > and access token — don't mix the two.
 
 3. **Install the Splunk Otel Collector:**
 
@@ -198,15 +217,16 @@ Integrate Splunk Otel Collector to collect and forward logs.
 
 If your Splunk Enterprise instance is running in a homelab behind a firewall, you'll need to securely expose the HEC endpoint to receive data from GKE.
 
-**Recommended Approach: Cloudflare Tunnel + Reverse Proxy**
+#### Recommended Approach: Cloudflare Tunnel + Reverse Proxy
 
 This project uses Cloudflare Tunnel with Traefik to securely route data from GKE to a homelab Splunk instance without exposing ports:
 
-```
+```text
 GKE OTel Collector → HTTPS → Cloudflare Tunnel → Traefik → Splunk HEC
 ```
 
 **Benefits:**
+
 - ✅ End-to-end HTTPS encryption
 - ✅ No port forwarding required on home network
 - ✅ Valid SSL certificates from Cloudflare
@@ -222,6 +242,7 @@ splunkPlatform:
 ```
 
 **Alternative Options:**
+
 - **Cloud VPN:** Create an IPsec VPN tunnel between GCP and your homelab
 - **Dynamic DNS + Port Forwarding:** Expose HEC via HTTPS (ensure proper security measures)
 
@@ -245,6 +266,78 @@ Once all components are deployed:
 
    - Navigate to your Splunk Enterprise dashboard.
    - Use the HEC endpoint to view and analyze the logs collected from the Kubernetes pods.
+
+## Cost Optimization
+
+GKE Autopilot bills per **Pod resource request**, not per node, so the values
+written in `minecraft-bedrock-server.yaml` are effectively the bill. This
+deployment applies four optimizations:
+
+### 1. Requests sized to the workload, and matched to limits
+
+On a non-bursting Autopilot cluster, GKE **raises requests to match limits**.
+An earlier version of this manifest requested `500m` CPU but set limits of
+`1000m`/`4Gi`, so it was billed for the larger figure. Requests and limits are
+now set equal at `500m` CPU / `2Gi` memory, which is ample for a small Bedrock
+server.
+
+The general-purpose compute class requires a CPU:memory ratio between 1:1 and
+1:6.5 (vCPU:GiB). At 500m CPU, memory must fall between 0.5 and 3.25 GiB —
+requests outside that window are silently adjusted upward by GKE, and billed
+accordingly.
+
+### 2. Spot Pods
+
+The Deployment schedules onto Spot capacity via a `nodeSelector`, at up to
+~60% off standard Autopilot rates:
+
+```yaml
+nodeSelector:
+  cloud.google.com/gke-spot: "true"
+terminationGracePeriodSeconds: 15
+```
+
+**Trade-offs:** GKE can evict the Pod at any time to reclaim capacity, and the
+preemption grace period is capped at **15 seconds** regardless of what
+`terminationGracePeriodSeconds` specifies — Bedrock gets a hard kill. The world
+lives on a PersistentVolumeClaim, so an eviction means a server restart, not
+data loss. Spot Pods are excluded from the Autopilot SLA. Remove the
+`nodeSelector` to revert to standard Pods.
+
+### 3. pd-balanced storage
+
+The StorageClass uses `pd-balanced` rather than `pd-ssd` — roughly half the
+price per GiB, and Bedrock is not IOPS-hungry. The provisioner is also updated
+to `pd.csi.storage.gke.io`, since the in-tree `kubernetes.io/gce-pd` driver was
+removed in Kubernetes 1.26 and will not bind on current GKE versions.
+
+### 4. Scheduled scale-to-zero
+
+`mc-bedrock-schedule.yaml` adds two CronJobs that scale the Deployment to zero
+overnight and back up in the evening, with a minimally-scoped ServiceAccount.
+Scaling to zero removes the Pod charge entirely; the PVC and cluster management
+fee continue regardless.
+
+Running 17:00–24:00 daily is ~210 hours/month instead of 730 — roughly a 70%
+cut in Pod cost on top of the other changes. Adjust `schedule` and `timeZone`
+in that file to suit. Manual control:
+
+```bash
+kubectl scale deployment/mc-bedrock --replicas=0   # stop
+kubectl scale deployment/mc-bedrock --replicas=1   # start
+```
+
+### Remaining fixed costs
+
+The GKE **cluster management fee** (~$0.10/hour, about $73/month) applies
+regardless of what runs on the cluster. A free tier credit of ~$74.40/month per
+billing account may offset this — check your billing account. The
+LoadBalancer and the persistent disk also bill continuously.
+
+> **Note:** Rates are approximate, region-specific, and change over time.
+> Confirm against the [GKE pricing page](https://cloud.google.com/kubernetes-engine/pricing)
+> and the [pricing calculator](https://cloud.google.com/products/calculator)
+> before relying on any figure here.
 
 ## Troubleshooting
 
@@ -281,6 +374,9 @@ Once all components are deployed:
 - **Minecraft Bedrock Server YAML:** [minecraft-bedrock-server.yaml](https://github.com/wedge22/k8s-mc-splunk-otel/blob/master/minecraft-bedrock-server.yaml)
 - **Splunk OTel Collector Chart:** [splunk-otel-collector-chart](https://github.com/signalfx/splunk-otel-collector-chart)
 - **Cloudflare Tunnel Documentation:** [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
+- **GKE Autopilot Resource Requests:** [Resource requests in Autopilot](https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-resource-requests)
+- **GKE Autopilot Spot Pods:** [Run fault-tolerant workloads in Spot Pods](https://cloud.google.com/kubernetes-engine/docs/how-to/autopilot-spot-pods)
+- **GKE Pricing:** [Google Kubernetes Engine pricing](https://cloud.google.com/kubernetes-engine/pricing)
 
 ## License
 

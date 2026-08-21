@@ -1,0 +1,114 @@
+# Optional: scheduled scale-to-zero for the Minecraft Bedrock server.
+#
+# Autopilot bills per running Pod, so scaling the deployment to zero when
+# nobody is playing removes the Pod charge entirely. The PersistentVolumeClaim
+# and the cluster management fee continue either way, and the world is
+# preserved on the PVC.
+#
+# Running 17:00-24:00 daily is ~210 hours/month instead of 730, roughly a 70%
+# cut in Pod cost on top of the Spot and right-sizing changes.
+#
+# Apply with:
+#   kubectl apply -f mc-bedrock-schedule.yaml
+#
+# Times below are UTC by default. Set .spec.timeZone (Kubernetes 1.27+) to use
+# a local zone, and adjust to taste.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mc-bedrock-scaler
+---
+# Least privilege: this identity can only scale the one deployment it needs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mc-bedrock-scaler
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "deployments"]
+    verbs: ["get", "patch", "update"]
+    resourceNames: ["mc-bedrock"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mc-bedrock-scaler
+subjects:
+  - kind: ServiceAccount
+    name: mc-bedrock-scaler
+roleRef:
+  kind: Role
+  name: mc-bedrock-scaler
+  apiGroup: rbac.authorization.k8s.io
+---
+# Start the server: 17:00 daily.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mc-bedrock-start
+spec:
+  schedule: "0 17 * * *"
+  timeZone: "America/Vancouver"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Don't retry forever if the API call keeps failing.
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: mc-bedrock-scaler
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:latest
+              command:
+                - kubectl
+                - scale
+                - deployment/mc-bedrock
+                - --replicas=1
+              # Autopilot minimum billable Pod. This runs for seconds a day,
+              # so the cost is negligible.
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: 250m
+                  memory: 512Mi
+---
+# Stop the server: midnight daily.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mc-bedrock-stop
+spec:
+  schedule: "0 0 * * *"
+  timeZone: "America/Vancouver"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: mc-bedrock-scaler
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:latest
+              command:
+                - kubectl
+                - scale
+                - deployment/mc-bedrock
+                - --replicas=0
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: 250m
+                  memory: 512Mi
